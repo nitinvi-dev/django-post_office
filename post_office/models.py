@@ -247,7 +247,7 @@ class Email(models.Model):
 
     def save(self, *args, **kwargs):
         site = sites_models.Site.objects.get_current()
-        if site.pk is not settings.FALLBACK_SITE_ID:
+        if site.pk:
             self.site = site
 
         self.full_clean()
@@ -335,7 +335,7 @@ class EmailTemplate(models.Model):
             self.name = self.default_template.name
 
         site = sites_models.Site.objects.get_current()
-        if site.pk is not settings.FALLBACK_SITE_ID:
+        if site.pk:
             self.site = site
 
         template = super().save(*args, **kwargs)
@@ -386,6 +386,6 @@ class Attachment(models.Model):
 
     def save(self, *args, **kwargs):
         site = sites_models.Site.objects.get_current()
-        if site.pk is not settings.FALLBACK_SITE_ID:
+        if site.pk:
             self.site = site
         return super(Attachment, self).save(*args, **kwargs)
