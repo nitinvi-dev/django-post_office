@@ -20,12 +20,31 @@ from .logutils import setup_loghandlers
 from .settings import context_field_class, get_log_level, get_template_engine, get_override_recipients
 from .validators import validate_email_with_name, validate_template_syntax
 
+from django.contrib.sites import models as sites_models
+from django.conf import settings
+
+from peregrine.core.managers import CurrentSiteMixin
+
 
 logger = setup_loghandlers("INFO")
 
 
 PRIORITY = namedtuple('PRIORITY', 'low medium high now')._make(range(4))
 STATUS = namedtuple('STATUS', 'sent failed queued requeued')._make(range(4))
+
+
+class EmailQuerySet(models.QuerySet):
+  pass
+
+
+class EmailManager(CurrentSiteMixin):
+  queryset_class = EmailQuerySet
+  def get_queryset(self):
+    queryset = self.queryset_class(self.model, using=self._db)
+    site = self.get_current_site()
+    if site:
+      queryset = queryset.filter(site=site)
+    return queryset
 
 
 class Email(models.Model):
@@ -75,6 +94,17 @@ class Email(models.Model):
     context = context_field_class(_('Context'), blank=True, null=True)
     backend_alias = models.CharField(_("Backend alias"), blank=True, default='',
                                      max_length=64)
+    site = models.ForeignKey(
+        sites_models.Site,
+        null=True,
+        blank=True,
+        related_name='emails',
+        verbose_name=_('Site'),
+        help_text=_('Related site object.'),
+        on_delete=models.CASCADE
+    )
+
+    objects = EmailManager()
 
     class Meta:
         app_label = 'post_office'
@@ -216,6 +246,10 @@ class Email(models.Model):
             raise ValidationError(_("The scheduled time may not be later than the expires time."))
 
     def save(self, *args, **kwargs):
+        site = sites_models.Site.objects.get_current()
+        if site.pk is not settings.FALLBACK_SITE_ID:
+            self.site = site
+
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -270,6 +304,16 @@ class EmailTemplate(models.Model):
     default_template = models.ForeignKey('self', related_name='translated_templates',
         null=True, default=None, verbose_name=_('Default template'), on_delete=models.CASCADE)
 
+    site = models.ForeignKey(
+        sites_models.Site,
+        null=True,
+        blank=True,
+        related_name='emailtemplates',
+        verbose_name=_('Site'),
+        help_text=_('Related site object.'),
+        on_delete = models.CASCADE
+    )
+
     objects = EmailTemplateManager()
 
     class Meta:
@@ -289,6 +333,10 @@ class EmailTemplate(models.Model):
         # If template is a translation, use default template's name
         if self.default_template and not self.name:
             self.name = self.default_template.name
+
+        site = sites_models.Site.objects.get_current()
+        if site.pk is not settings.FALLBACK_SITE_ID:
+            self.site = site
 
         template = super().save(*args, **kwargs)
         cache.delete(self.name)
@@ -318,6 +366,16 @@ class Attachment(models.Model):
     mimetype = models.CharField(max_length=255, default='', blank=True)
     headers = JSONField(_('Headers'), blank=True, null=True)
 
+    site = models.ForeignKey(
+        sites_models.Site,
+        null=True,
+        blank=True,
+        related_name='attachments',
+        verbose_name=_('Site'),
+        help_text=_('Related site object.'),
+        on_delete=models.CASCADE
+    )
+
     class Meta:
         app_label = 'post_office'
         verbose_name = _("Attachment")
@@ -325,3 +383,9 @@ class Attachment(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        site = sites_models.Site.objects.get_current()
+        if site.pk is not settings.FALLBACK_SITE_ID:
+            self.site = site
+        return super(Attachment, self).save(*args, **kwargs)
